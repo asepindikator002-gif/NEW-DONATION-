@@ -1,0 +1,24 @@
+{
+  "name": "sociabuzz-roblox-webhook",
+  "version": "1.0.0",
+  "description": "Webhook server untuk menerima notifikasi donasi Sociabuzz dan mengirimkan ke Roblox game",
+  "main": "api/webhook.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "keywords": [
+    "sociabuzz",
+    "roblox",
+    "webhook",
+    "donation"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^2.6.7"
+  },
+  "devDependencies": {
+    "vercel": "^28.0.0"
+  }
+}
