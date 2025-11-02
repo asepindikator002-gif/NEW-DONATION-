@@ -15,9 +15,4 @@
 }
 ```
 
-#### **File 4: .gitignore**
-Buat file baru, copy paste ini:
-```
-node_modules/
-.env
-.vercel
+
