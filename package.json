@@ -1,21 +1,11 @@
 {
   "name": "roblox-donation-webhook",
   "version": "1.0.0",
-  "description": "Backend webhook untuk notifikasi donasi Sociabuzz/Saweria ke Roblox",
+  "description": "Backend webhook untuk notifikasi donasi",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node index.js"
+    "start": "node index.js"
   },
-  "keywords": [
-    "roblox",
-    "webhook",
-    "donation",
-    "sociabuzz",
-    "saweria"
-  ],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5"
