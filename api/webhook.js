@@ -1,4 +1,4 @@
-// api/webhook.js - Taruh file ini di folder api/ di project Vercel Anda
+// api/webhook.js - UPDATE untuk handle format Sociabuzz dengan benar
 
 let latestDonation = {
   id: 0,
@@ -33,6 +33,9 @@ export default function handler(req, res) {
     try {
       const donationData = req.body;
 
+      // Log untuk debugging
+      console.log("Raw webhook data:", JSON.stringify(donationData));
+
       // Validasi data dari Sociabuzz
       if (!donationData) {
         return res.status(400).json({
@@ -41,16 +44,77 @@ export default function handler(req, res) {
         });
       }
 
+      // Extract nama dengan prioritas berbeda-beda
+      let nama = "Anonim";
+      
+      // Cek berbagai kemungkinan field nama dari Sociabuzz
+      if (donationData.name) {
+        nama = donationData.name;
+      } else if (donationData.supporter_name) {
+        nama = donationData.supporter_name;
+      } else if (donationData.supporter) {
+        nama = donationData.supporter;
+      } else if (donationData.display_name) {
+        nama = donationData.display_name;
+      } else if (donationData.donor_name) {
+        nama = donationData.donor_name;
+      } else if (donationData.supporter_full_name) {
+        nama = donationData.supporter_full_name;
+      } else if (donationData.nama) {
+        nama = donationData.nama;
+      }
+
+      // Jika masih Anonim dan ada field lain, ambil dari field pertama yang ada value
+      if (nama === "Anonim" || !nama || nama.trim() === "") {
+        const possibleNameFields = Object.keys(donationData).filter(key => 
+          typeof donationData[key] === 'string' && 
+          donationData[key].length > 0 &&
+          !key.toLowerCase().includes('email') &&
+          !key.toLowerCase().includes('id') &&
+          !key.toLowerCase().includes('amount') &&
+          !key.toLowerCase().includes('message')
+        );
+        
+        if (possibleNameFields.length > 0) {
+          nama = donationData[possibleNameFields[0]];
+        }
+      }
+
+      // Extract jumlah donasi
+      let jumlah = 0;
+      if (donationData.amount) {
+        jumlah = parseInt(donationData.amount);
+      } else if (donationData.jumlah) {
+        jumlah = parseInt(donationData.jumlah);
+      } else if (donationData.donation_amount) {
+        jumlah = parseInt(donationData.donation_amount);
+      } else if (donationData.total) {
+        jumlah = parseInt(donationData.total);
+      }
+
+      // Extract pesan
+      let pesan = "";
+      if (donationData.message) {
+        pesan = donationData.message;
+      } else if (donationData.pesan) {
+        pesan = donationData.pesan;
+      } else if (donationData.supporter_message) {
+        pesan = donationData.supporter_message;
+      } else if (donationData.comment) {
+        pesan = donationData.comment;
+      }
+
       // Update donation dengan ID increment
       latestDonation = {
         id: latestDonation.id + 1,
-        nama: donationData.supporter_name || donationData.nama || "Anonim",
-        jumlah: parseInt(donationData.amount || donationData.jumlah || 0),
-        pesan: donationData.message || donationData.pesan || "",
-        timestamp: Date.now()
+        nama: nama || "Anonim",
+        jumlah: jumlah || 0,
+        pesan: pesan || "",
+        timestamp: Date.now(),
+        raw_data: donationData // Simpan raw data untuk debugging
       };
 
-      console.log("Donasi baru diterima:", latestDonation);
+      console.log("Processed donation:", latestDonation);
 
       return res.status(200).json({
         success: true,
@@ -62,7 +126,8 @@ export default function handler(req, res) {
       console.error("Error processing webhook:", error);
       return res.status(500).json({
         success: false,
-        message: "Terjadi kesalahan saat memproses donasi"
+        message: "Terjadi kesalahan saat memproses donasi",
+        error: error.message
       });
     }
   }
