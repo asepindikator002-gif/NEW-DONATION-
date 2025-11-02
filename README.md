@@ -1,339 +1,260 @@
-# 🎮 Sociabuzz to Roblox Donation Notifier
+# 🎮 Sistem Notifikasi Donasi Roblox Real-Time
 
-Sistem notifikasi real-time untuk menampilkan donasi dari Sociabuzz ke dalam game Roblox dengan tampilan elegant dan minimalis.
+Sistem ini memungkinkan notifikasi donasi dari Sociabuzz/Saweria muncul secara real-time di game Roblox Anda.
 
-## ✨ Fitur
-
-- ✅ Notifikasi real-time saat ada donasi
-- ✅ Tampilan minimalis hitam/abu-abu transparan
-- ✅ Animasi fade in/out yang smooth
-- ✅ Sound effect untuk setiap donasi
-- ✅ Queue system (antrian notifikasi)
-- ✅ Ditampilkan ke semua player di game
-- ✅ Format currency otomatis (Rupiah)
-
-## 📋 Prasyarat
-
-- [x] Akun Sociabuzz Creator
-- [x] Game Roblox yang sudah published
-- [x] Akun GitHub
-- [x] Akun Vercel
-- [x] Node.js terinstall di komputer (untuk testing lokal)
-
----
-
-## 🚀 Langkah 1: Setup Roblox Open Cloud API
-
-### 1.1 Dapatkan API Key
-
-1. Buka [Roblox Creator Dashboard](https://create.roblox.com/credentials)
-2. Klik **"CREATE API KEY"**
-3. Isi form:
-   - **Name**: `Sociabuzz Webhook`
-   - **Description**: `API key for donation notifications`
-4. Di bagian **Access Permissions**, pilih:
-   - **Messaging Service** → Centang **Publish**
-5. Di **Experiences**, pilih game kamu
-6. Klik **Save & Generate Key**
-7. **COPY dan SIMPAN** API Key (tidak bisa dilihat lagi!)
-
-### 1.2 Dapatkan Universe ID
-
-1. Buka game kamu di Roblox Studio
-2. Klik **File** > **Game Settings** (atau tekan Alt+S)
-3. Di tab **Basic Info**, cari **Universe ID**
-4. Copy Universe ID tersebut
-
----
-
-## 🚀 Langkah 2: Setup Backend (Vercel)
-
-### 2.1 Struktur Folder
-
-Buat struktur folder seperti ini:
+## 📁 Struktur File
 
 ```
-sociabuzz-roblox-webhook/
-├── api/
-│   └── webhook.js
-├── package.json
-├── vercel.json
-├── .env.example
-├── .gitignore
-└── README.md
+roblox-donation-webhook/
+├── index.js           # Backend Express.js
+├── vercel.json        # Konfigurasi Vercel
+├── package.json       # Dependencies
+├── README.md          # Panduan ini
+└── .gitignore         # Git ignore file
 ```
 
-### 2.2 Install Dependencies
+## 🚀 Langkah 1: Upload ke GitHub
 
-```bash
-npm install
+### 1.1 Buat file `.gitignore`
+
+Buat file baru bernama `.gitignore` dengan isi:
+
+```
+node_modules/
+.env
+.vercel
 ```
 
-### 2.3 Setup Environment Variables
+### 1.2 Upload ke GitHub
 
-1. Copy file `.env.example` menjadi `.env`
-   ```bash
-   cp .env.example .env
-   ```
+1. Buka [GitHub.com](https://github.com) dan login
+2. Klik tombol **"New"** atau **"+"** di pojok kanan atas
+3. Pilih **"New repository"**
+4. Nama repository: `roblox-donation-webhook` (atau nama lain)
+5. Pilih **Public** atau **Private**
+6. **JANGAN** centang "Add a README file"
+7. Klik **"Create repository"**
 
-2. Edit file `.env` dan isi dengan data kamu:
-   ```env
-   ROBLOX_API_KEY=rbx_cloud_xxxxxxxxxxxxx
-   ROBLOX_UNIVERSE_ID=1234567890
-   WEBHOOK_SECRET=buatRandomStringYangKuat123!@#
-   ```
+### 1.3 Upload File
 
-### 2.4 Upload ke GitHub
+Ada 2 cara:
+
+#### Cara A: Upload via Web (Termudah)
+
+1. Di halaman repository baru, klik **"uploading an existing file"**
+2. Drag & drop semua file:
+   - `index.js`
+   - `vercel.json`
+   - `package.json`
+   - `README.md`
+   - `.gitignore`
+3. Klik **"Commit changes"**
+
+#### Cara B: Via Git CLI (Jika familiar dengan terminal)
 
 ```bash
 git init
 git add .
-git commit -m "Initial commit: Sociabuzz to Roblox webhook"
+git commit -m "Initial commit"
 git branch -M main
-git remote add origin https://github.com/username/sociabuzz-roblox-webhook.git
+git remote add origin https://github.com/USERNAME/roblox-donation-webhook.git
 git push -u origin main
 ```
 
-### 2.5 Deploy ke Vercel
+## ☁️ Langkah 2: Deploy ke Vercel
 
-1. Login ke [Vercel](https://vercel.com)
-2. Klik **"Add New Project"**
-3. Import repository GitHub kamu
-4. Di **Environment Variables**, tambahkan:
-   - `ROBLOX_API_KEY` = (API key dari langkah 1.1)
-   - `ROBLOX_UNIVERSE_ID` = (Universe ID dari langkah 1.2)
-   - `WEBHOOK_SECRET` = (String random yang kuat)
-5. Klik **Deploy**
-6. Tunggu sampai selesai, copy URL deploy (contoh: `https://your-project.vercel.app`)
+### 2.1 Daftar/Login Vercel
 
----
+1. Buka [Vercel.com](https://vercel.com)
+2. Klik **"Sign Up"** atau **"Login"**
+3. Login dengan akun GitHub Anda
 
-## 🚀 Langkah 3: Setup Roblox Game
+### 2.2 Import Project
 
-### 3.1 Enable HTTP Requests & MessagingService
+1. Setelah login, klik **"Add New..."** → **"Project"**
+2. Cari repository `roblox-donation-webhook`
+3. Klik **"Import"**
+4. Di halaman konfigurasi:
+   - **Framework Preset**: Pilih **"Other"**
+   - **Root Directory**: Biarkan default (`./`)
+   - **Build Command**: Biarkan kosong
+   - **Output Directory**: Biarkan kosong
+5. Klik **"Deploy"**
 
-1. Buka game di Roblox Studio
-2. Klik **Home** > **Game Settings**
-3. Pergi ke tab **Security**
-4. Centang **"Allow HTTP Requests"**
-5. Klik **Save**
+### 2.3 Tunggu Deploy Selesai
 
-### 3.2 Install Server Script
+- Proses deploy memakan waktu 1-3 menit
+- Setelah selesai, Anda akan mendapat URL seperti: `https://your-project-name.vercel.app`
+- **SIMPAN URL INI!** Anda akan memerlukannya nanti
 
-1. Di **Explorer**, buka **ServerScriptService**
-2. Klik kanan > **Insert Object** > **Script**
-3. Rename menjadi `DonationReceiver`
-4. Copy-paste code dari file `ServerScript.lua`
-5. Save script
+### 2.4 Test Server
 
-### 3.3 Install Client Script (UI)
+Buka URL Vercel Anda di browser. Anda harus melihat response JSON seperti:
 
-1. Di **Explorer**, buka **StarterPlayer** > **StarterPlayerScripts**
-2. Klik kanan > **Insert Object** > **LocalScript**
-3. Rename menjadi `DonationNotificationUI`
-4. Copy-paste code dari file `LocalScript.lua`
-5. Save script
+```json
+{
+  "status": "Server aktif",
+  "endpoints": {
+    "webhook": "POST /webhook - Terima webhook dari Sociabuzz/Saweria",
+    "latest": "GET /latest - Ambil donasi terbaru untuk Roblox",
+    "test": "POST /test - Test donasi manual"
+  }
+}
+```
 
-### 3.4 Upload Sound Effect
+## 🔗 Langkah 3: Pasang Webhook ke Sociabuzz/Saweria
 
-1. Cari sound effect notification di:
-   - [Roblox Library](https://create.roblox.com/marketplace/audio)
-   - Atau upload sound sendiri
-2. Copy **Asset ID** dari sound (contoh: `9770089602`)
-3. Buka `LocalScript.lua` di Roblox Studio
-4. Ganti line ini:
-   ```lua
-   local SOUND_ID = "rbxassetid://9770089602"
-   ```
-   Dengan Asset ID sound kamu
+### Untuk Sociabuzz:
 
-### 3.5 Publish Game
-
-1. Klik **File** > **Publish to Roblox**
-2. Test dulu di Roblox Studio dengan menekan **F5**
-
----
-
-## 🚀 Langkah 4: Setup Sociabuzz Webhook
-
-### 4.1 Konfigurasi Webhook
-
-1. Login ke [Sociabuzz Creator](https://sociabuzz.com)
+1. Login ke [Sociabuzz.com](https://sociabuzz.com)
 2. Masuk ke **Dashboard**
-3. Cari menu **Webhook** atau **Integrasi**
+3. Pilih menu **"Webhook"** atau **"Integration"**
 4. Tambah webhook baru:
-   - **URL**: `https://your-project.vercel.app/api/webhook`
+   - **URL**: `https://your-vercel-url.vercel.app/webhook`
    - **Method**: POST
-   - **Secret/Token**: (string yang sama dengan `WEBHOOK_SECRET` di .env)
-5. Save webhook
+   - **Event**: Donation/Payment
+5. Simpan
 
-### 4.2 Test Webhook
+### Untuk Saweria:
 
-Ada beberapa cara untuk test:
+1. Login ke [Saweria.co](https://saweria.co)
+2. Masuk ke **Pengaturan** → **Webhook**
+3. Aktifkan webhook
+4. Masukkan URL: `https://your-vercel-url.vercel.app/webhook`
+5. Simpan
 
-**Opsi 1: Test dari Sociabuzz**
-- Gunakan fitur "Test Webhook" jika tersedia di dashboard Sociabuzz
+## 🎮 Langkah 4: Setup Script di Roblox Studio
 
-**Opsi 2: Test Manual dengan cURL**
-```bash
-curl -X POST https://your-project.vercel.app/api/webhook \
-  -H "Content-Type: application/json" \
-  -H "x-webhook-secret: your_secret_key_here" \
-  -d '{
-    "supporter_name": "Test Donor",
-    "amount": 50000,
-    "supporter_message": "Semangat terus!"
-  }'
+### 4.1 Buka Roblox Studio
+
+1. Buka game/project Roblox Anda
+2. Pastikan **HTTP Requests** sudah diaktifkan:
+   - Klik **Home** tab → **Game Settings**
+   - Pilih tab **Security**
+   - Centang **"Allow HTTP Requests"**
+   - Klik **Save**
+
+### 4.2 Masukkan Script
+
+1. Di Explorer panel, buka: **StarterPlayer** → **StarterPlayerScripts**
+2. Klik kanan **StarterPlayerScripts** → **Insert Object** → **LocalScript**
+3. Rename menjadi `DonationNotifier`
+4. Copy semua kode dari file `DonationNotifier.lua`
+5. Paste ke dalam script
+6. **PENTING**: Ganti baris ini:
+   ```lua
+   local API_URL = "https://your-vercel-url.vercel.app/latest"
+   ```
+   Dengan URL Vercel Anda yang sebenarnya, contoh:
+   ```lua
+   local API_URL = "https://roblox-donation-webhook.vercel.app/latest"
+   ```
+
+### 4.3 Test di Studio
+
+1. Klik tombol **Play** di Roblox Studio
+2. Buka browser, akses: `https://your-vercel-url.vercel.app/test` (gunakan POST request)
+   
+   Atau gunakan curl di terminal:
+   ```bash
+   curl -X POST https://your-vercel-url.vercel.app/test
+   ```
+
+3. Notifikasi harus muncul di game Roblox Anda!
+
+## 🧪 Testing Webhook
+
+### Test Manual via Browser/Postman:
+
+**Endpoint Test:**
+```
+POST https://your-vercel-url.vercel.app/test
 ```
 
-**Opsi 3: Test dari Roblox Studio**
-- Uncomment code test di `ServerScript.lua` (line terakhir)
-- Run game di Studio, notifikasi akan muncul otomatis
+**Test Webhook Manual:**
+```
+POST https://your-vercel-url.vercel.app/webhook
+Content-Type: application/json
 
----
+{
+  "name": "John Doe",
+  "amount": 50000,
+  "message": "Semangat terus streamingnya!"
+}
+```
 
-## 🎨 Kustomisasi
+**Cek Donasi Terakhir:**
+```
+GET https://your-vercel-url.vercel.app/latest
+```
 
-### Ubah Warna UI
+## 🎨 Kustomisasi UI Notifikasi
 
-Edit di `LocalScript.lua`:
+Edit script Roblox untuk mengubah tampilan:
 
+### Mengubah Warna Background:
 ```lua
--- Background color (line ~50)
-container.BackgroundColor3 = Color3.fromRGB(20, 20, 20) -- Hitam
-
--- Text color nama donor (line ~85)
-donorName.TextColor3 = Color3.fromRGB(255, 255, 255) -- Putih
-
--- Text color amount (line ~96)
-amount.TextColor3 = Color3.fromRGB(100, 255, 100) -- Hijau
-
--- Text color message (line ~119)
-message.TextColor3 = Color3.fromRGB(200, 200, 200) -- Abu-abu terang
+notifFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30) -- Ubah angka RGB
 ```
 
-### Ubah Durasi Notifikasi
-
-Edit di `LocalScript.lua` (line ~228):
-
+### Mengubah Posisi:
 ```lua
--- Tunggu 6 detik (ubah angka ini)
-task.wait(6)
+notifFrame.Position = UDim2.new(0.5, 0, 0.05, 0) -- Ubah 0.05 untuk posisi vertikal
 ```
 
-### Ubah Posisi Notifikasi
-
-Edit di `LocalScript.lua` (line ~51):
-
+### Mengubah Ukuran:
 ```lua
--- Posisi saat ini: tengah atas, 20px dari atas
-container.Position = UDim2.new(0.5, 0, 0, 20)
-
--- Contoh posisi lain:
--- Kiri atas: UDim2.new(0, 20, 0, 20)
--- Kanan atas: UDim2.new(1, -420, 0, 20)
--- Tengah layar: UDim2.new(0.5, 0, 0.5, 0)
+notifFrame.Size = UDim2.new(0, 400, 0, 80) -- Lebar 400px, Tinggi 80px
 ```
 
----
-
-## 🐛 Troubleshooting
-
-### Notifikasi tidak muncul di Roblox
-
-**Cek 1: Vercel Logs**
-```bash
-vercel logs your-project-name
-```
-Lihat apakah ada error saat webhook diterima
-
-**Cek 2: Roblox Studio Output**
-- Buka game di Studio
-- Lihat **Output** window (View > Output)
-- Harusnya ada message: "✅ Successfully subscribed to Sociabuzz donations!"
-
-**Cek 3: API Key Permission**
-- Pastikan API Key memiliki permission **Messaging Service: Publish**
-- Pastikan API Key untuk Universe ID yang benar
-
-**Cek 4: Enable HTTP Requests**
-- Game Settings > Security > Allow HTTP Requests harus dicentang
-
-### Webhook error 401 (Unauthorized)
-
-- `WEBHOOK_SECRET` di Vercel harus sama dengan yang di Sociabuzz
-- Cek header `x-webhook-secret` atau field `secret` di body
-
-### Webhook error 500
-
-- Cek Vercel logs untuk detail error
-- Pastikan `ROBLOX_API_KEY` dan `ROBLOX_UNIVERSE_ID` benar
-
-### Sound tidak play
-
-- Pastikan Asset ID sound benar
-- Sound harus public/accessible
-- Cek volume player tidak di-mute
-
----
-
-## 📊 Format Data Sociabuzz
-
-Script ini support format umum dari Sociabuzz. Jika format berbeda, edit `api/webhook.js`:
-
-```javascript
-// Sesuaikan dengan struktur data dari Sociabuzz
-const donationData = {
-  donorName: req.body.supporter_name || req.body.name || 'Anonymous',
-  amount: req.body.amount || req.body.donation_amount || 0,
-  message: req.body.supporter_message || req.body.message || '',
-  currency: req.body.currency || 'IDR'
-};
+### Mengubah Durasi Tampil:
+```lua
+task.wait(4) -- Ubah angka 4 (dalam detik)
 ```
 
+## ❓ Troubleshooting
+
+### Notifikasi tidak muncul:
+1. Pastikan HTTP Requests diaktifkan di Game Settings → Security
+2. Cek URL API sudah benar di script Roblox
+3. Test endpoint `/latest` di browser, pastikan ada response
+4. Cek Output/Console di Roblox Studio untuk error message
+
+### Webhook tidak diterima:
+1. Cek URL webhook di Sociabuzz/Saweria sudah benar
+2. Test endpoint `/webhook` dengan Postman atau curl
+3. Cek logs di Vercel Dashboard → Deployments → Functions
+
+### Server tidak bisa diakses:
+1. Pastikan deploy Vercel berhasil (status: Ready)
+2. Cek apakah ada error di Vercel Dashboard
+3. Test ulang dengan klik tombol "Redeploy" di Vercel
+
+## 📝 Catatan Penting
+
+- Sistem ini tidak menggunakan database, data hanya tersimpan di memori
+- Setiap kali Vercel restart, data donasi akan hilang (ini normal untuk versi gratis)
+- Script Roblox akan otomatis deteksi donasi baru setiap 5 detik
+- Notifikasi hanya muncul untuk donasi baru (tidak duplikat)
+
+## 🔐 Keamanan
+
+Versi ini menggunakan public endpoint tanpa authentication. Untuk production yang lebih aman:
+- Tambahkan API key authentication
+- Gunakan rate limiting
+- Validasi data webhook lebih ketat
+
+## 📞 Support
+
+Jika ada masalah:
+1. Cek dokumentasi Sociabuzz/Saweria untuk format webhook mereka
+2. Test endpoint dengan tools seperti Postman atau curl
+3. Cek logs di Vercel Dashboard
+
+## 📄 Lisensi
+
+MIT License - Bebas digunakan dan dimodifikasi
+
 ---
 
-## 📝 Rate Limits
-
-### Roblox MessagingService
-- **150 requests per minute** per Universe
-- Jika exceed, error 429 (Too Many Requests)
-
-### Vercel Free Tier
-- **100 GB-hours** per month
-- Biasanya cukup untuk webhook notifications
-
----
-
-## 🔒 Keamanan
-
-1. **Jangan commit `.env`** ke Git (sudah ada di .gitignore)
-2. **Gunakan secret key yang kuat** (minimal 32 karakter random)
-3. **Rotate API key** secara berkala
-4. **Monitor Vercel logs** untuk aktivitas mencurigakan
-
----
-
-## 🤝 Support
-
-Jika ada masalah atau pertanyaan:
-1. Cek **Troubleshooting** section di atas
-2. Cek Vercel logs: `vercel logs`
-3. Cek Roblox Studio Output window
-4. Review konfigurasi environment variables
-
----
-
-## 📄 License
-
-MIT License - Feel free to modify and use!
-
----
-
-## 🎉 Happy Streaming!
-
-
-Selamat! Sistem notifikasi donasi Sociabuzz ke Roblox sudah siap digunakan. 
-
-Setiap ada donasi, semua player di game akan melihat notifikasi yang elegant dan minimalis! 🚀
-Test deploymen
+**Selamat mencoba! 🚀**
