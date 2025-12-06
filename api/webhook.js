@@ -1,12 +1,12 @@
-// api/webhook.js - CommonJS Version
+// api/webhook.js - ONE-TIME DELIVERY VERSION
 const { kv } = require('@vercel/kv');
 
 // Config
 const CONFIG = {
   MAX_HISTORY: 100,
-  ID_EXPIRY_TIME: 600000,
-  DUPLICATE_WINDOW: 30000,
-  CLEANUP_INTERVAL: 120000
+  ID_EXPIRY_TIME: 600000,        // 10 menit (fallback)
+  DUPLICATE_WINDOW: 30000,       // 30 detik untuk detect duplicate
+  CLEANUP_INTERVAL: 120000       // Cleanup setiap 2 menit
 };
 
 let lastCleanupTime = Date.now();
@@ -114,12 +114,15 @@ module.exports = async function handler(req, res) {
     return res.status(200).end();
   }
   
-  // GET - Fetch donations
+  // ==========================================
+  // GET - Roblox ambil donasi (ONE-TIME DELIVERY)
+  // ==========================================
   if (req.method === 'GET') {
     try {
       const now = Date.now();
       const keys = await kv.keys('donation:*');
       const activeDonations = [];
+      const keysToDelete = []; // Track keys to delete after sending
       
       for (const key of keys) {
         const data = await kv.get(key);
@@ -131,12 +134,24 @@ module.exports = async function handler(req, res) {
             pesan: data.pesan,
             timestamp: data.timestamp
           });
+          
+          // Mark for deletion (ONE-TIME DELIVERY)
+          keysToDelete.push(key);
         }
       }
       
+      // Sort by timestamp
       activeDonations.sort((a, b) => a.timestamp - b.timestamp);
       
       console.log(`[GET] Returning ${activeDonations.length} donations`);
+      
+      // Delete donations after sending (ONE-TIME DELIVERY)
+      if (keysToDelete.length > 0) {
+        for (const key of keysToDelete) {
+          await kv.del(key);
+          console.log(`[DELIVERED] Deleted: ${key} (one-time delivery)`);
+        }
+      }
       
       return res.status(200).json({
         success: true,
@@ -155,7 +170,9 @@ module.exports = async function handler(req, res) {
     }
   }
   
-  // POST - New donation
+  // ==========================================
+  // POST - Sociabuzz webhook donasi baru
+  // ==========================================
   if (req.method === 'POST') {
     try {
       const webhookData = req.body;
@@ -198,12 +215,13 @@ module.exports = async function handler(req, res) {
       
       const donationId = `DN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
+      // Save dengan expiry time yang lebih pendek (5 menit cukup)
       await kv.set(`donation:${donationId}`, {
         nama: donation.nama,
         jumlah: donation.jumlah,
         pesan: donation.pesan,
         timestamp: Date.now()
-      }, { ex: Math.floor(CONFIG.ID_EXPIRY_TIME / 1000) });
+      }, { ex: 300 }); // 5 menit expiry (fallback jika tidak ter-delete)
       
       console.log(`[NEW] ${donationId} - ${donation.nama} - Rp${donation.jumlah.toLocaleString('id-ID')}`);
       
