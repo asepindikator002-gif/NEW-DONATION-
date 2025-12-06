@@ -1,4 +1,4 @@
-// api/webhook.js - DEBUG VERSION (Returns field analysis in response)
+// api/webhook.js - FIXED FOR SOCIABUZZ FORMAT
 const { kv } = require('@vercel/kv');
 
 const CONFIG = {
@@ -21,9 +21,9 @@ async function isKVAvailable() {
 }
 
 function generateDonationFingerprint(data) {
-  const name = (data.supporter_name || data.nama || "").trim().toLowerCase();
+  const name = (data.supporter || data.supporter_name || data.nama || "").toString().trim().toLowerCase();
   const amount = parseInt(data.amount || data.jumlah || 0);
-  const message = (data.message || data.pesan || "").trim().toLowerCase();
+  const message = (data.message || data.pesan || "").toString().trim().toLowerCase();
   return `${name}|${amount}|${message}`;
 }
 
@@ -64,6 +64,7 @@ async function isDuplicateDonation(fingerprint) {
     if (lastSeen) {
       const timeSince = Date.now() - lastSeen;
       if (timeSince < CONFIG.DUPLICATE_WINDOW) {
+        console.log(`[DUPLICATE] Same donation seen ${timeSince}ms ago`);
         return true;
       }
     }
@@ -125,6 +126,8 @@ module.exports = async function handler(req, res) {
       
       activeDonations.sort((a, b) => a.timestamp - b.timestamp);
       
+      console.log(`[GET] Returning ${activeDonations.length} donations`);
+      
       if (keysToDelete.length > 0) {
         for (const key of keysToDelete) {
           await kv.del(key);
@@ -140,6 +143,7 @@ module.exports = async function handler(req, res) {
       });
       
     } catch (error) {
+      console.error('[GET ERROR]', error);
       return res.status(500).json({
         success: false,
         message: 'Error fetching donations',
@@ -149,29 +153,11 @@ module.exports = async function handler(req, res) {
   }
   
   // ==========================================
-  // POST - Sociabuzz webhook WITH DEBUG
+  // POST - Sociabuzz webhook
   // ==========================================
   if (req.method === 'POST') {
     try {
       const webhookData = req.body;
-      
-      // 🔍 ANALYZE ALL POSSIBLE NAME FIELDS
-      const fieldAnalysis = {
-        supporter_name: webhookData.supporter_name || null,
-        nama: webhookData.nama || null,
-        name: webhookData.name || null,
-        donor_name: webhookData.donor_name || null,
-        donator_name: webhookData.donator_name || null,
-        supporter_object: webhookData.supporter || null,
-        user_object: webhookData.user || null,
-        amount: webhookData.amount || null,
-        jumlah: webhookData.jumlah || null,
-        message: webhookData.message || null,
-        pesan: webhookData.pesan || null,
-        all_keys: Object.keys(webhookData)
-      };
-      
-      console.log('[FIELD ANALYSIS]', JSON.stringify(fieldAnalysis, null, 2));
       
       if (!webhookData) {
         return res.status(400).json({
@@ -180,46 +166,48 @@ module.exports = async function handler(req, res) {
         });
       }
       
-      // Try ALL possible name field combinations
-      const donation = {
-        nama: (
+      // ✅ FIXED: Sociabuzz sends "supporter" as direct string
+      let supporterName = "Anonim";
+      
+      if (webhookData.supporter) {
+        // supporter is a string
+        if (typeof webhookData.supporter === 'string') {
+          supporterName = webhookData.supporter.trim();
+        }
+        // supporter is an object with name property
+        else if (typeof webhookData.supporter === 'object' && webhookData.supporter.name) {
+          supporterName = webhookData.supporter.name.trim();
+        }
+      }
+      
+      // Fallback to other possible fields
+      if (supporterName === "Anonim") {
+        supporterName = (
           webhookData.supporter_name || 
           webhookData.nama || 
           webhookData.name ||
           webhookData.donor_name ||
-          webhookData.donator_name ||
-          (webhookData.supporter && webhookData.supporter.name) ||
           (webhookData.user && webhookData.user.name) ||
-          (webhookData.supporter && webhookData.supporter.username) ||
-          (webhookData.user && webhookData.user.username) ||
           "Anonim"
-        ).toString().trim(),
-        jumlah: parseInt(
-          webhookData.amount || 
-          webhookData.jumlah || 
-          webhookData.donation_amount ||
-          webhookData.total ||
-          0
-        ),
-        pesan: (
-          webhookData.message || 
-          webhookData.pesan || 
-          webhookData.comment ||
-          webhookData.note ||
-          ""
-        ).toString().trim()
+        ).toString().trim();
+      }
+      
+      const donation = {
+        nama: supporterName,
+        jumlah: parseInt(webhookData.amount || webhookData.jumlah || 0),
+        pesan: (webhookData.message || webhookData.pesan || "").toString().trim()
       };
       
-      console.log('[PARSED]', donation);
+      console.log('[DONATION RECEIVED]', {
+        nama: donation.nama,
+        jumlah: donation.jumlah,
+        pesan: donation.pesan
+      });
       
       if (donation.jumlah <= 0) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid amount',
-          debug: {
-            fieldAnalysis,
-            parsed: donation
-          }
+          message: 'Invalid amount'
         });
       }
       
@@ -227,12 +215,13 @@ module.exports = async function handler(req, res) {
       const isDuplicate = await isDuplicateDonation(fingerprint);
       
       if (isDuplicate) {
+        console.log(`[REJECTED] Duplicate: ${donation.nama} - Rp${donation.jumlah}`);
         return res.status(200).json({
           success: false,
           message: 'Duplicate donation detected',
-          data: donation,
-          debug: {
-            fieldAnalysis,
+          data: {
+            nama: donation.nama,
+            jumlah: donation.jumlah,
             reason: 'Same donation within 30 seconds'
           }
         });
@@ -249,7 +238,6 @@ module.exports = async function handler(req, res) {
       
       console.log(`[NEW] ${donationId} - ${donation.nama} - Rp${donation.jumlah.toLocaleString('id-ID')}`);
       
-      // ✅ RETURN DEBUG INFO IN RESPONSE
       return res.status(200).json({
         success: true,
         message: 'Donation received',
@@ -259,12 +247,6 @@ module.exports = async function handler(req, res) {
           jumlah: donation.jumlah,
           pesan: donation.pesan,
           timestamp: Date.now()
-        },
-        debug: {
-          receivedFields: fieldAnalysis,
-          parsedResult: donation,
-          allWebhookKeys: Object.keys(webhookData),
-          webhookDataSample: webhookData
         }
       });
       
