@@ -1,31 +1,44 @@
-// api/webhook.js - FIXED VERSION dengan Anti-Spam yang BENAR
-// Menggunakan Vercel KV untuk persistent storage
-
-import { kv } from '@vercel/kv';
+// api/webhook.js - CommonJS Version
+const { kv } = require('@vercel/kv');
 
 // Config
 const CONFIG = {
   MAX_HISTORY: 100,
-  ID_EXPIRY_TIME: 600000,        // 10 menit
-  DUPLICATE_WINDOW: 30000,       // 30 detik untuk detect duplicate
-  CLEANUP_INTERVAL: 120000       // Cleanup setiap 2 menit
+  ID_EXPIRY_TIME: 600000,
+  DUPLICATE_WINDOW: 30000,
+  CLEANUP_INTERVAL: 120000
 };
 
 let lastCleanupTime = Date.now();
 
-// Generate unique fingerprint dari donation (TANPA timestamp!)
+// Check if KV is available
+async function isKVAvailable() {
+  try {
+    await kv.ping();
+    return true;
+  } catch (error) {
+    console.error('[KV CHECK] KV not available:', error.message);
+    return false;
+  }
+}
+
+// Generate unique fingerprint
 function generateDonationFingerprint(data) {
   const name = (data.supporter_name || data.nama || "").trim().toLowerCase();
   const amount = parseInt(data.amount || data.jumlah || 0);
   const message = (data.message || data.pesan || "").trim().toLowerCase();
-  
-  // Fingerprint hanya dari data donasi, bukan timestamp
   return `${name}|${amount}|${message}`;
 }
 
 // Cleanup expired donations
 async function cleanupExpiredDonations() {
   try {
+    const kvAvailable = await isKVAvailable();
+    if (!kvAvailable) {
+      console.log('[CLEANUP] Skipped - KV not available');
+      return;
+    }
+
     const now = Date.now();
     const keys = await kv.keys('donation:*');
     
@@ -37,7 +50,6 @@ async function cleanupExpiredDonations() {
       }
     }
     
-    // Cleanup fingerprints (30 detik window)
     const fpKeys = await kv.keys('fingerprint:*');
     for (const key of fpKeys) {
       const timestamp = await kv.get(key);
@@ -67,16 +79,27 @@ async function isDuplicateDonation(fingerprint) {
       }
     }
     
-    // Record fingerprint dengan timestamp
-    await kv.set(key, Date.now(), { ex: 60 }); // Expire in 60 seconds
+    await kv.set(key, Date.now(), { ex: 60 });
     return false;
   } catch (error) {
     console.error('[DUPLICATE CHECK ERROR]', error);
-    return false; // Fail open - allow donation
+    return false;
   }
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
+  // Check KV availability first
+  const kvAvailable = await isKVAvailable();
+  
+  if (!kvAvailable) {
+    console.error('[ERROR] Vercel KV is not available. Check configuration.');
+    return res.status(503).json({
+      success: false,
+      message: 'Service temporarily unavailable - Storage not configured',
+      error: 'KV_NOT_AVAILABLE'
+    });
+  }
+
   // Auto cleanup
   if (Date.now() - lastCleanupTime > CONFIG.CLEANUP_INTERVAL) {
     cleanupExpiredDonations().catch(console.error);
@@ -91,9 +114,7 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
   
-  // ==========================================
-  // GET - Roblox ambil semua donasi aktif
-  // ==========================================
+  // GET - Fetch donations
   if (req.method === 'GET') {
     try {
       const now = Date.now();
@@ -113,7 +134,6 @@ export default async function handler(req, res) {
         }
       }
       
-      // Sort by timestamp
       activeDonations.sort((a, b) => a.timestamp - b.timestamp);
       
       console.log(`[GET] Returning ${activeDonations.length} donations`);
@@ -135,9 +155,7 @@ export default async function handler(req, res) {
     }
   }
   
-  // ==========================================
-  // POST - Sociabuzz webhook donasi baru
-  // ==========================================
+  // POST - New donation
   if (req.method === 'POST') {
     try {
       const webhookData = req.body;
@@ -149,14 +167,12 @@ export default async function handler(req, res) {
         });
       }
       
-      // Parse donation
       const donation = {
         nama: (webhookData.supporter_name || webhookData.nama || "Anonim").trim(),
         jumlah: parseInt(webhookData.amount || webhookData.jumlah || 0),
         pesan: (webhookData.message || webhookData.pesan || "").trim()
       };
       
-      // Validate amount
       if (donation.jumlah <= 0) {
         return res.status(400).json({
           success: false,
@@ -164,40 +180,36 @@ export default async function handler(req, res) {
         });
       }
       
-      // Generate fingerprint (TANPA timestamp!)
       const fingerprint = generateDonationFingerprint(webhookData);
-      
-      // Check duplicate
       const isDuplicate = await isDuplicateDonation(fingerprint);
+      
       if (isDuplicate) {
-        console.log(`[REJECTED] Duplicate donation blocked: ${donation.nama} - Rp${donation.jumlah}`);
+        console.log(`[REJECTED] Duplicate: ${donation.nama} - Rp${donation.jumlah}`);
         return res.status(200).json({
           success: false,
-          message: 'Duplicate donation detected and blocked',
+          message: 'Duplicate donation detected',
           data: {
             nama: donation.nama,
             jumlah: donation.jumlah,
-            reason: 'Same donation received within 30 seconds'
+            reason: 'Same donation within 30 seconds'
           }
         });
       }
       
-      // Generate unique ID
       const donationId = `DN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
-      // Save to KV
       await kv.set(`donation:${donationId}`, {
         nama: donation.nama,
         jumlah: donation.jumlah,
         pesan: donation.pesan,
         timestamp: Date.now()
-      }, { ex: Math.floor(CONFIG.ID_EXPIRY_TIME / 1000) }); // Auto-expire
+      }, { ex: Math.floor(CONFIG.ID_EXPIRY_TIME / 1000) });
       
-      console.log(`[NEW DONATION] ${donationId} - ${donation.nama} - Rp${donation.jumlah.toLocaleString('id-ID')}`);
+      console.log(`[NEW] ${donationId} - ${donation.nama} - Rp${donation.jumlah.toLocaleString('id-ID')}`);
       
       return res.status(200).json({
         success: true,
-        message: 'Donation received successfully',
+        message: 'Donation received',
         data: {
           id: donationId,
           nama: donation.nama,
@@ -221,4 +233,4 @@ export default async function handler(req, res) {
     success: false,
     message: 'Method not allowed'
   });
-}
+};
