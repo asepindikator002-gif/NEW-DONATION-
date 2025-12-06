@@ -2,7 +2,6 @@
   "name": "roblox-donation-webhook",
   "version": "1.0.0",
   "description": "Backend webhook untuk notifikasi donasi",
-  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
