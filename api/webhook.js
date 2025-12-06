@@ -1,17 +1,16 @@
-// api/webhook.js - ONE-TIME DELIVERY VERSION
+// api/webhook.js - ONE-TIME DELIVERY VERSION WITH ENHANCED DEBUGGING
 const { kv } = require('@vercel/kv');
 
 // Config
 const CONFIG = {
   MAX_HISTORY: 100,
-  ID_EXPIRY_TIME: 600000,        // 10 menit (fallback)
-  DUPLICATE_WINDOW: 30000,       // 30 detik untuk detect duplicate
-  CLEANUP_INTERVAL: 120000       // Cleanup setiap 2 menit
+  ID_EXPIRY_TIME: 600000,
+  DUPLICATE_WINDOW: 30000,
+  CLEANUP_INTERVAL: 120000
 };
 
 let lastCleanupTime = Date.now();
 
-// Check if KV is available
 async function isKVAvailable() {
   try {
     await kv.ping();
@@ -22,7 +21,6 @@ async function isKVAvailable() {
   }
 }
 
-// Generate unique fingerprint
 function generateDonationFingerprint(data) {
   const name = (data.supporter_name || data.nama || "").trim().toLowerCase();
   const amount = parseInt(data.amount || data.jumlah || 0);
@@ -30,7 +28,6 @@ function generateDonationFingerprint(data) {
   return `${name}|${amount}|${message}`;
 }
 
-// Cleanup expired donations
 async function cleanupExpiredDonations() {
   try {
     const kvAvailable = await isKVAvailable();
@@ -65,7 +62,6 @@ async function cleanupExpiredDonations() {
   }
 }
 
-// Check if donation is duplicate
 async function isDuplicateDonation(fingerprint) {
   try {
     const key = `fingerprint:${fingerprint}`;
@@ -88,7 +84,6 @@ async function isDuplicateDonation(fingerprint) {
 }
 
 module.exports = async function handler(req, res) {
-  // Check KV availability first
   const kvAvailable = await isKVAvailable();
   
   if (!kvAvailable) {
@@ -100,12 +95,10 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Auto cleanup
   if (Date.now() - lastCleanupTime > CONFIG.CLEANUP_INTERVAL) {
     cleanupExpiredDonations().catch(console.error);
   }
   
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -115,14 +108,14 @@ module.exports = async function handler(req, res) {
   }
   
   // ==========================================
-  // GET - Roblox ambil donasi (ONE-TIME DELIVERY)
+  // GET - Roblox ambil donasi
   // ==========================================
   if (req.method === 'GET') {
     try {
       const now = Date.now();
       const keys = await kv.keys('donation:*');
       const activeDonations = [];
-      const keysToDelete = []; // Track keys to delete after sending
+      const keysToDelete = [];
       
       for (const key of keys) {
         const data = await kv.get(key);
@@ -135,21 +128,18 @@ module.exports = async function handler(req, res) {
             timestamp: data.timestamp
           });
           
-          // Mark for deletion (ONE-TIME DELIVERY)
           keysToDelete.push(key);
         }
       }
       
-      // Sort by timestamp
       activeDonations.sort((a, b) => a.timestamp - b.timestamp);
       
       console.log(`[GET] Returning ${activeDonations.length} donations`);
       
-      // Delete donations after sending (ONE-TIME DELIVERY)
       if (keysToDelete.length > 0) {
         for (const key of keysToDelete) {
           await kv.del(key);
-          console.log(`[DELIVERED] Deleted: ${key} (one-time delivery)`);
+          console.log(`[DELIVERED] Deleted: ${key}`);
         }
       }
       
@@ -171,11 +161,28 @@ module.exports = async function handler(req, res) {
   }
   
   // ==========================================
-  // POST - Sociabuzz webhook donasi baru
+  // POST - Sociabuzz webhook
   // ==========================================
   if (req.method === 'POST') {
     try {
       const webhookData = req.body;
+      
+      // 🔍 ENHANCED DEBUG LOGGING
+      console.log('===========================================');
+      console.log('[DEBUG] RAW WEBHOOK DATA:');
+      console.log(JSON.stringify(webhookData, null, 2));
+      console.log('===========================================');
+      console.log('[DEBUG] Available fields:');
+      console.log('  - supporter_name:', webhookData.supporter_name);
+      console.log('  - nama:', webhookData.nama);
+      console.log('  - name:', webhookData.name);
+      console.log('  - donor_name:', webhookData.donor_name);
+      console.log('  - donator_name:', webhookData.donator_name);
+      console.log('  - amount:', webhookData.amount);
+      console.log('  - jumlah:', webhookData.jumlah);
+      console.log('  - message:', webhookData.message);
+      console.log('  - pesan:', webhookData.pesan);
+      console.log('===========================================');
       
       if (!webhookData) {
         return res.status(400).json({
@@ -184,11 +191,39 @@ module.exports = async function handler(req, res) {
         });
       }
       
+      // Try multiple possible field names from Sociabuzz
       const donation = {
-        nama: (webhookData.supporter_name || webhookData.nama || "Anonim").trim(),
-        jumlah: parseInt(webhookData.amount || webhookData.jumlah || 0),
-        pesan: (webhookData.message || webhookData.pesan || "").trim()
+        nama: (
+          webhookData.supporter_name || 
+          webhookData.nama || 
+          webhookData.name ||
+          webhookData.donor_name ||
+          webhookData.donator_name ||
+          webhookData.supporter?.name ||
+          webhookData.user?.name ||
+          "Anonim"
+        ).trim(),
+        jumlah: parseInt(
+          webhookData.amount || 
+          webhookData.jumlah || 
+          webhookData.donation_amount ||
+          webhookData.total ||
+          0
+        ),
+        pesan: (
+          webhookData.message || 
+          webhookData.pesan || 
+          webhookData.comment ||
+          webhookData.note ||
+          ""
+        ).trim()
       };
+      
+      console.log('[DEBUG] PARSED DONATION:');
+      console.log('  - nama:', donation.nama);
+      console.log('  - jumlah:', donation.jumlah);
+      console.log('  - pesan:', donation.pesan);
+      console.log('===========================================');
       
       if (donation.jumlah <= 0) {
         return res.status(400).json({
@@ -215,13 +250,12 @@ module.exports = async function handler(req, res) {
       
       const donationId = `DN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
-      // Save dengan expiry time yang lebih pendek (5 menit cukup)
       await kv.set(`donation:${donationId}`, {
         nama: donation.nama,
         jumlah: donation.jumlah,
         pesan: donation.pesan,
         timestamp: Date.now()
-      }, { ex: 300 }); // 5 menit expiry (fallback jika tidak ter-delete)
+      }, { ex: 300 });
       
       console.log(`[NEW] ${donationId} - ${donation.nama} - Rp${donation.jumlah.toLocaleString('id-ID')}`);
       
