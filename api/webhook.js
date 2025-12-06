@@ -1,11 +1,11 @@
-// api/webhook.js - FIXED FOR SOCIABUZZ FORMAT
+// api/webhook.js - FINAL VERSION (Sociabuzz Format Fixed)
 const { kv } = require('@vercel/kv');
 
 const CONFIG = {
   MAX_HISTORY: 100,
-  ID_EXPIRY_TIME: 600000,
-  DUPLICATE_WINDOW: 30000,
-  CLEANUP_INTERVAL: 120000
+  ID_EXPIRY_TIME: 600000,        // 10 menit
+  DUPLICATE_WINDOW: 30000,       // 30 detik
+  CLEANUP_INTERVAL: 120000       // 2 menit
 };
 
 let lastCleanupTime = Date.now();
@@ -21,6 +21,7 @@ async function isKVAvailable() {
 }
 
 function generateDonationFingerprint(data) {
+  // ✅ FIXED: Use 'supporter' field directly
   const name = (data.supporter || data.supporter_name || data.nama || "").toString().trim().toLowerCase();
   const amount = parseInt(data.amount || data.jumlah || 0);
   const message = (data.message || data.pesan || "").toString().trim().toLowerCase();
@@ -30,7 +31,10 @@ function generateDonationFingerprint(data) {
 async function cleanupExpiredDonations() {
   try {
     const kvAvailable = await isKVAvailable();
-    if (!kvAvailable) return;
+    if (!kvAvailable) {
+      console.log('[CLEANUP] Skipped - KV not available');
+      return;
+    }
 
     const now = Date.now();
     const keys = await kv.keys('donation:*');
@@ -39,6 +43,7 @@ async function cleanupExpiredDonations() {
       const data = await kv.get(key);
       if (data && (now - data.timestamp > CONFIG.ID_EXPIRY_TIME)) {
         await kv.del(key);
+        console.log(`[CLEANUP] Removed expired: ${key}`);
       }
     }
     
@@ -51,6 +56,7 @@ async function cleanupExpiredDonations() {
     }
     
     lastCleanupTime = now;
+    console.log(`[CLEANUP] Completed at ${new Date().toISOString()}`);
   } catch (error) {
     console.error('[CLEANUP ERROR]', error);
   }
@@ -81,9 +87,10 @@ module.exports = async function handler(req, res) {
   const kvAvailable = await isKVAvailable();
   
   if (!kvAvailable) {
+    console.error('[ERROR] Vercel KV is not available');
     return res.status(503).json({
       success: false,
-      message: 'Service temporarily unavailable',
+      message: 'Service temporarily unavailable - Storage not configured',
       error: 'KV_NOT_AVAILABLE'
     });
   }
@@ -101,7 +108,7 @@ module.exports = async function handler(req, res) {
   }
   
   // ==========================================
-  // GET - Roblox ambil donasi
+  // GET - Roblox fetches donations (ONE-TIME DELIVERY)
   // ==========================================
   if (req.method === 'GET') {
     try {
@@ -128,6 +135,7 @@ module.exports = async function handler(req, res) {
       
       console.log(`[GET] Returning ${activeDonations.length} donations`);
       
+      // Delete after delivery (one-time)
       if (keysToDelete.length > 0) {
         for (const key of keysToDelete) {
           await kv.del(key);
@@ -153,7 +161,7 @@ module.exports = async function handler(req, res) {
   }
   
   // ==========================================
-  // POST - Sociabuzz webhook
+  // POST - Sociabuzz webhook handler
   // ==========================================
   if (req.method === 'POST') {
     try {
@@ -166,28 +174,24 @@ module.exports = async function handler(req, res) {
         });
       }
       
-      // ✅ FIXED: Sociabuzz sends "supporter" as direct string
+      // ✅ FIXED: Extract supporter name correctly
+      // Sociabuzz format: { "supporter": "xxmathws", "amount": 10000, "message": "..." }
       let supporterName = "Anonim";
       
       if (webhookData.supporter) {
-        // supporter is a string
         if (typeof webhookData.supporter === 'string') {
           supporterName = webhookData.supporter.trim();
-        }
-        // supporter is an object with name property
-        else if (typeof webhookData.supporter === 'object' && webhookData.supporter.name) {
+        } else if (typeof webhookData.supporter === 'object' && webhookData.supporter.name) {
           supporterName = webhookData.supporter.name.trim();
         }
       }
       
-      // Fallback to other possible fields
-      if (supporterName === "Anonim") {
+      // Fallback untuk format lain (just in case)
+      if (supporterName === "Anonim" || !supporterName) {
         supporterName = (
           webhookData.supporter_name || 
           webhookData.nama || 
           webhookData.name ||
-          webhookData.donor_name ||
-          (webhookData.user && webhookData.user.name) ||
           "Anonim"
         ).toString().trim();
       }
@@ -198,11 +202,7 @@ module.exports = async function handler(req, res) {
         pesan: (webhookData.message || webhookData.pesan || "").toString().trim()
       };
       
-      console.log('[DONATION RECEIVED]', {
-        nama: donation.nama,
-        jumlah: donation.jumlah,
-        pesan: donation.pesan
-      });
+      console.log(`[RECEIVED] ${donation.nama} - Rp${donation.jumlah.toLocaleString('id-ID')} - "${donation.pesan}"`);
       
       if (donation.jumlah <= 0) {
         return res.status(400).json({
@@ -229,6 +229,7 @@ module.exports = async function handler(req, res) {
       
       const donationId = `DN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
+      // Save with 5 minute expiry (fallback, will be deleted on delivery)
       await kv.set(`donation:${donationId}`, {
         nama: donation.nama,
         jumlah: donation.jumlah,
