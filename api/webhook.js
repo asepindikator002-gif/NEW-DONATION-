@@ -1,216 +1,224 @@
-// api/webhook.js - VERSI FIXED DENGAN DUPLICATE DETECTION
-// Taruh file ini di folder api/ di project Vercel Anda
+// api/webhook.js - FIXED VERSION dengan Anti-Spam yang BENAR
+// Menggunakan Vercel KV untuk persistent storage
 
-// Storage untuk multiple donations dengan duplicate detection
-const donationHistory = new Map(); // Format: [id] => {donation, timestamp}
-const processedWebhookIds = new Set(); // Track webhook IDs dari Sociabuzz
+import { kv } from '@vercel/kv';
 
 // Config
 const CONFIG = {
-  MAX_HISTORY: 100,           // Simpan max 100 donasi
-  ID_EXPIRY_TIME: 600000,     // 10 menit (dalam ms)
-  CLEANUP_INTERVAL: 120000,   // Cleanup setiap 2 menit
-  WEBHOOK_DUPLICATE_WINDOW: 5000 // 5 detik untuk detect duplicate webhook
+  MAX_HISTORY: 100,
+  ID_EXPIRY_TIME: 600000,        // 10 menit
+  DUPLICATE_WINDOW: 30000,       // 30 detik untuk detect duplicate
+  CLEANUP_INTERVAL: 120000       // Cleanup setiap 2 menit
 };
 
-let donationCounter = 0;
 let lastCleanupTime = Date.now();
 
-// Fungsi untuk cleanup old donations
-function cleanupOldDonations() {
-  const now = Date.now();
+// Generate unique fingerprint dari donation (TANPA timestamp!)
+function generateDonationFingerprint(data) {
+  const name = (data.supporter_name || data.nama || "").trim().toLowerCase();
+  const amount = parseInt(data.amount || data.jumlah || 0);
+  const message = (data.message || data.pesan || "").trim().toLowerCase();
   
-  // Cleanup donation history
-  for (const [id, data] of donationHistory.entries()) {
-    if (now - data.timestamp > CONFIG.ID_EXPIRY_TIME) {
-      donationHistory.delete(id);
-      console.log(`[CLEANUP] Removed expired donation ID: ${id}`);
-    }
-  }
-  
-  // Cleanup webhook IDs (lebih agresif - 5 detik)
-  const recentWebhooks = new Set();
-  for (const webhookId of processedWebhookIds) {
-    const parts = webhookId.split('_');
-    const timestamp = parseInt(parts[parts.length - 1]);
-    if (now - timestamp < CONFIG.WEBHOOK_DUPLICATE_WINDOW) {
-      recentWebhooks.add(webhookId);
-    }
-  }
-  processedWebhookIds.clear();
-  recentWebhooks.forEach(id => processedWebhookIds.add(id));
-  
-  lastCleanupTime = now;
-  console.log(`[CLEANUP] History size: ${donationHistory.size}, Recent webhooks: ${processedWebhookIds.size}`);
+  // Fingerprint hanya dari data donasi, bukan timestamp
+  return `${name}|${amount}|${message}`;
 }
 
-// Generate unique donation ID
-function generateDonationId() {
-  donationCounter++;
-  return `DN_${Date.now()}_${donationCounter}`;
-}
-
-// Check if webhook is duplicate (same data dalam 5 detik)
-function isWebhookDuplicate(webhookData) {
-  // Create unique signature dari webhook
-  const signature = `${webhookData.supporter_name || webhookData.nama}_${webhookData.amount || webhookData.jumlah}_${Date.now()}`;
-  const webhookId = signature.substring(0, 50) + '_' + Date.now();
-  
-  // Check if similar webhook exists in last 5 seconds
-  for (const existingId of processedWebhookIds) {
-    const existingSignature = existingId.substring(0, existingId.lastIndexOf('_'));
-    const currentSignature = webhookId.substring(0, webhookId.lastIndexOf('_'));
+// Cleanup expired donations
+async function cleanupExpiredDonations() {
+  try {
+    const now = Date.now();
+    const keys = await kv.keys('donation:*');
     
-    if (existingSignature === currentSignature) {
-      const existingTimestamp = parseInt(existingId.split('_').pop());
-      if (Date.now() - existingTimestamp < CONFIG.WEBHOOK_DUPLICATE_WINDOW) {
+    for (const key of keys) {
+      const data = await kv.get(key);
+      if (data && (now - data.timestamp > CONFIG.ID_EXPIRY_TIME)) {
+        await kv.del(key);
+        console.log(`[CLEANUP] Removed expired: ${key}`);
+      }
+    }
+    
+    // Cleanup fingerprints (30 detik window)
+    const fpKeys = await kv.keys('fingerprint:*');
+    for (const key of fpKeys) {
+      const timestamp = await kv.get(key);
+      if (timestamp && (now - timestamp > CONFIG.DUPLICATE_WINDOW)) {
+        await kv.del(key);
+      }
+    }
+    
+    lastCleanupTime = now;
+    console.log(`[CLEANUP] Completed at ${new Date().toISOString()}`);
+  } catch (error) {
+    console.error('[CLEANUP ERROR]', error);
+  }
+}
+
+// Check if donation is duplicate
+async function isDuplicateDonation(fingerprint) {
+  try {
+    const key = `fingerprint:${fingerprint}`;
+    const lastSeen = await kv.get(key);
+    
+    if (lastSeen) {
+      const timeSince = Date.now() - lastSeen;
+      if (timeSince < CONFIG.DUPLICATE_WINDOW) {
+        console.log(`[DUPLICATE] Same donation seen ${timeSince}ms ago`);
         return true;
       }
     }
+    
+    // Record fingerprint dengan timestamp
+    await kv.set(key, Date.now(), { ex: 60 }); // Expire in 60 seconds
+    return false;
+  } catch (error) {
+    console.error('[DUPLICATE CHECK ERROR]', error);
+    return false; // Fail open - allow donation
   }
-  
-  processedWebhookIds.add(webhookId);
-  return false;
 }
 
-export default function handler(req, res) {
-  // Auto cleanup jika sudah waktunya
+export default async function handler(req, res) {
+  // Auto cleanup
   if (Date.now() - lastCleanupTime > CONFIG.CLEANUP_INTERVAL) {
-    cleanupOldDonations();
+    cleanupExpiredDonations().catch(console.error);
   }
   
-  // Enable CORS untuk Roblox
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
-  // Handle preflight request
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
   
   // ==========================================
-  // GET - Roblox mengambil semua donasi aktif
+  // GET - Roblox ambil semua donasi aktif
   // ==========================================
   if (req.method === 'GET') {
-    const now = Date.now();
-    const activeDonations = [];
-    
-    // Ambil semua donasi yang masih aktif (belum expired)
-    for (const [id, data] of donationHistory.entries()) {
-      if (now - data.timestamp < CONFIG.ID_EXPIRY_TIME) {
-        activeDonations.push({
-          id: id,
-          nama: data.donation.nama,
-          jumlah: data.donation.jumlah,
-          pesan: data.donation.pesan,
-          timestamp: data.timestamp
-        });
+    try {
+      const now = Date.now();
+      const keys = await kv.keys('donation:*');
+      const activeDonations = [];
+      
+      for (const key of keys) {
+        const data = await kv.get(key);
+        if (data && (now - data.timestamp < CONFIG.ID_EXPIRY_TIME)) {
+          activeDonations.push({
+            id: key.replace('donation:', ''),
+            nama: data.nama,
+            jumlah: data.jumlah,
+            pesan: data.pesan,
+            timestamp: data.timestamp
+          });
+        }
       }
+      
+      // Sort by timestamp
+      activeDonations.sort((a, b) => a.timestamp - b.timestamp);
+      
+      console.log(`[GET] Returning ${activeDonations.length} donations`);
+      
+      return res.status(200).json({
+        success: true,
+        donations: activeDonations,
+        count: activeDonations.length,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('[GET ERROR]', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error fetching donations',
+        error: error.message
+      });
     }
-    
-    // Sort by timestamp (oldest first)
-    activeDonations.sort((a, b) => a.timestamp - b.timestamp);
-    
-    console.log(`[GET] Sending ${activeDonations.length} active donations to Roblox`);
-    
-    return res.status(200).json({
-      success: true,
-      donations: activeDonations,
-      count: activeDonations.length,
-      message: "Active donations retrieved",
-      timestamp: new Date().toISOString()
-    });
   }
   
   // ==========================================
-  // POST - Sociabuzz mengirim webhook donasi baru
+  // POST - Sociabuzz webhook donasi baru
   // ==========================================
   if (req.method === 'POST') {
     try {
       const webhookData = req.body;
       
-      // Validasi data dari Sociabuzz
       if (!webhookData) {
-        console.error("[ERROR] No webhook data received");
         return res.status(400).json({
           success: false,
-          message: "Data donasi tidak valid"
+          message: 'No data received'
         });
       }
       
-      // Check webhook duplicate (spam dari Sociabuzz)
-      if (isWebhookDuplicate(webhookData)) {
-        console.log("[DUPLICATE WEBHOOK] Same webhook received within 5 seconds, ignoring");
-        return res.status(200).json({
-          success: false,
-          message: "Duplicate webhook detected",
-          note: "This webhook was already processed recently"
-        });
-      }
-      
-      // Parse donation data
-      const donationId = generateDonationId();
+      // Parse donation
       const donation = {
-        nama: webhookData.supporter_name || webhookData.nama || "Anonim",
+        nama: (webhookData.supporter_name || webhookData.nama || "Anonim").trim(),
         jumlah: parseInt(webhookData.amount || webhookData.jumlah || 0),
-        pesan: webhookData.message || webhookData.pesan || ""
+        pesan: (webhookData.message || webhookData.pesan || "").trim()
       };
       
-      // Validasi jumlah
+      // Validate amount
       if (donation.jumlah <= 0) {
-        console.error("[ERROR] Invalid donation amount:", donation.jumlah);
         return res.status(400).json({
           success: false,
-          message: "Jumlah donasi tidak valid"
+          message: 'Invalid amount'
         });
       }
       
-      // Simpan ke history
-      donationHistory.set(donationId, {
-        donation: donation,
-        timestamp: Date.now()
-      });
+      // Generate fingerprint (TANPA timestamp!)
+      const fingerprint = generateDonationFingerprint(webhookData);
       
-      // Cleanup jika history terlalu besar
-      if (donationHistory.size > CONFIG.MAX_HISTORY) {
-        // Hapus donasi tertua
-        const oldestId = Array.from(donationHistory.keys())[0];
-        donationHistory.delete(oldestId);
-        console.log(`[CLEANUP] Removed oldest donation to maintain max size: ${oldestId}`);
+      // Check duplicate
+      const isDuplicate = await isDuplicateDonation(fingerprint);
+      if (isDuplicate) {
+        console.log(`[REJECTED] Duplicate donation blocked: ${donation.nama} - Rp${donation.jumlah}`);
+        return res.status(200).json({
+          success: false,
+          message: 'Duplicate donation detected and blocked',
+          data: {
+            nama: donation.nama,
+            jumlah: donation.jumlah,
+            reason: 'Same donation received within 30 seconds'
+          }
+        });
       }
       
-      console.log(`[NEW DONATION] ID: ${donationId}, Name: ${donation.nama}, Amount: Rp ${donation.jumlah.toLocaleString('id-ID')}`);
+      // Generate unique ID
+      const donationId = `DN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Save to KV
+      await kv.set(`donation:${donationId}`, {
+        nama: donation.nama,
+        jumlah: donation.jumlah,
+        pesan: donation.pesan,
+        timestamp: Date.now()
+      }, { ex: Math.floor(CONFIG.ID_EXPIRY_TIME / 1000) }); // Auto-expire
+      
+      console.log(`[NEW DONATION] ${donationId} - ${donation.nama} - Rp${donation.jumlah.toLocaleString('id-ID')}`);
       
       return res.status(200).json({
         success: true,
-        message: "Donasi berhasil diterima",
+        message: 'Donation received successfully',
         data: {
           id: donationId,
           nama: donation.nama,
           jumlah: donation.jumlah,
           pesan: donation.pesan,
           timestamp: Date.now()
-        },
-        stats: {
-          totalActive: donationHistory.size,
-          maxHistory: CONFIG.MAX_HISTORY
         }
       });
       
     } catch (error) {
-      console.error("[ERROR] Error processing webhook:", error);
+      console.error('[POST ERROR]', error);
       return res.status(500).json({
         success: false,
-        message: "Terjadi kesalahan saat memproses donasi",
+        message: 'Error processing donation',
         error: error.message
       });
     }
   }
   
-  // Method tidak didukung
   return res.status(405).json({
     success: false,
-    message: "Method tidak didukung"
+    message: 'Method not allowed'
   });
 }
