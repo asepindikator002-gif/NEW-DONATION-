@@ -4,7 +4,7 @@ const { kv } = require('@vercel/kv');
 const CONFIG = {
   MAX_HISTORY: 100,
   ID_EXPIRY_TIME: 600000,
-  DUPLICATE_WINDOW: 30000,
+  DUPLICATE_WINDOW: 5,
   CLEANUP_INTERVAL: 120000
 };
 
