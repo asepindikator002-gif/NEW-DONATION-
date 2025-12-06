@@ -1,7 +1,6 @@
-// api/webhook.js - ONE-TIME DELIVERY VERSION WITH ENHANCED DEBUGGING
+// api/webhook.js - DEBUG VERSION (Returns field analysis in response)
 const { kv } = require('@vercel/kv');
 
-// Config
 const CONFIG = {
   MAX_HISTORY: 100,
   ID_EXPIRY_TIME: 600000,
@@ -31,10 +30,7 @@ function generateDonationFingerprint(data) {
 async function cleanupExpiredDonations() {
   try {
     const kvAvailable = await isKVAvailable();
-    if (!kvAvailable) {
-      console.log('[CLEANUP] Skipped - KV not available');
-      return;
-    }
+    if (!kvAvailable) return;
 
     const now = Date.now();
     const keys = await kv.keys('donation:*');
@@ -43,7 +39,6 @@ async function cleanupExpiredDonations() {
       const data = await kv.get(key);
       if (data && (now - data.timestamp > CONFIG.ID_EXPIRY_TIME)) {
         await kv.del(key);
-        console.log(`[CLEANUP] Removed expired: ${key}`);
       }
     }
     
@@ -56,7 +51,6 @@ async function cleanupExpiredDonations() {
     }
     
     lastCleanupTime = now;
-    console.log(`[CLEANUP] Completed at ${new Date().toISOString()}`);
   } catch (error) {
     console.error('[CLEANUP ERROR]', error);
   }
@@ -70,7 +64,6 @@ async function isDuplicateDonation(fingerprint) {
     if (lastSeen) {
       const timeSince = Date.now() - lastSeen;
       if (timeSince < CONFIG.DUPLICATE_WINDOW) {
-        console.log(`[DUPLICATE] Same donation seen ${timeSince}ms ago`);
         return true;
       }
     }
@@ -87,10 +80,9 @@ module.exports = async function handler(req, res) {
   const kvAvailable = await isKVAvailable();
   
   if (!kvAvailable) {
-    console.error('[ERROR] Vercel KV is not available. Check configuration.');
     return res.status(503).json({
       success: false,
-      message: 'Service temporarily unavailable - Storage not configured',
+      message: 'Service temporarily unavailable',
       error: 'KV_NOT_AVAILABLE'
     });
   }
@@ -127,14 +119,11 @@ module.exports = async function handler(req, res) {
             pesan: data.pesan,
             timestamp: data.timestamp
           });
-          
           keysToDelete.push(key);
         }
       }
       
       activeDonations.sort((a, b) => a.timestamp - b.timestamp);
-      
-      console.log(`[GET] Returning ${activeDonations.length} donations`);
       
       if (keysToDelete.length > 0) {
         for (const key of keysToDelete) {
@@ -151,7 +140,6 @@ module.exports = async function handler(req, res) {
       });
       
     } catch (error) {
-      console.error('[GET ERROR]', error);
       return res.status(500).json({
         success: false,
         message: 'Error fetching donations',
@@ -161,28 +149,29 @@ module.exports = async function handler(req, res) {
   }
   
   // ==========================================
-  // POST - Sociabuzz webhook
+  // POST - Sociabuzz webhook WITH DEBUG
   // ==========================================
   if (req.method === 'POST') {
     try {
       const webhookData = req.body;
       
-      // 🔍 ENHANCED DEBUG LOGGING
-      console.log('===========================================');
-      console.log('[DEBUG] RAW WEBHOOK DATA:');
-      console.log(JSON.stringify(webhookData, null, 2));
-      console.log('===========================================');
-      console.log('[DEBUG] Available fields:');
-      console.log('  - supporter_name:', webhookData.supporter_name);
-      console.log('  - nama:', webhookData.nama);
-      console.log('  - name:', webhookData.name);
-      console.log('  - donor_name:', webhookData.donor_name);
-      console.log('  - donator_name:', webhookData.donator_name);
-      console.log('  - amount:', webhookData.amount);
-      console.log('  - jumlah:', webhookData.jumlah);
-      console.log('  - message:', webhookData.message);
-      console.log('  - pesan:', webhookData.pesan);
-      console.log('===========================================');
+      // 🔍 ANALYZE ALL POSSIBLE NAME FIELDS
+      const fieldAnalysis = {
+        supporter_name: webhookData.supporter_name || null,
+        nama: webhookData.nama || null,
+        name: webhookData.name || null,
+        donor_name: webhookData.donor_name || null,
+        donator_name: webhookData.donator_name || null,
+        supporter_object: webhookData.supporter || null,
+        user_object: webhookData.user || null,
+        amount: webhookData.amount || null,
+        jumlah: webhookData.jumlah || null,
+        message: webhookData.message || null,
+        pesan: webhookData.pesan || null,
+        all_keys: Object.keys(webhookData)
+      };
+      
+      console.log('[FIELD ANALYSIS]', JSON.stringify(fieldAnalysis, null, 2));
       
       if (!webhookData) {
         return res.status(400).json({
@@ -191,7 +180,7 @@ module.exports = async function handler(req, res) {
         });
       }
       
-      // Try multiple possible field names from Sociabuzz
+      // Try ALL possible name field combinations
       const donation = {
         nama: (
           webhookData.supporter_name || 
@@ -199,10 +188,12 @@ module.exports = async function handler(req, res) {
           webhookData.name ||
           webhookData.donor_name ||
           webhookData.donator_name ||
-          webhookData.supporter?.name ||
-          webhookData.user?.name ||
+          (webhookData.supporter && webhookData.supporter.name) ||
+          (webhookData.user && webhookData.user.name) ||
+          (webhookData.supporter && webhookData.supporter.username) ||
+          (webhookData.user && webhookData.user.username) ||
           "Anonim"
-        ).trim(),
+        ).toString().trim(),
         jumlah: parseInt(
           webhookData.amount || 
           webhookData.jumlah || 
@@ -216,19 +207,19 @@ module.exports = async function handler(req, res) {
           webhookData.comment ||
           webhookData.note ||
           ""
-        ).trim()
+        ).toString().trim()
       };
       
-      console.log('[DEBUG] PARSED DONATION:');
-      console.log('  - nama:', donation.nama);
-      console.log('  - jumlah:', donation.jumlah);
-      console.log('  - pesan:', donation.pesan);
-      console.log('===========================================');
+      console.log('[PARSED]', donation);
       
       if (donation.jumlah <= 0) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid amount'
+          message: 'Invalid amount',
+          debug: {
+            fieldAnalysis,
+            parsed: donation
+          }
         });
       }
       
@@ -236,13 +227,12 @@ module.exports = async function handler(req, res) {
       const isDuplicate = await isDuplicateDonation(fingerprint);
       
       if (isDuplicate) {
-        console.log(`[REJECTED] Duplicate: ${donation.nama} - Rp${donation.jumlah}`);
         return res.status(200).json({
           success: false,
           message: 'Duplicate donation detected',
-          data: {
-            nama: donation.nama,
-            jumlah: donation.jumlah,
+          data: donation,
+          debug: {
+            fieldAnalysis,
             reason: 'Same donation within 30 seconds'
           }
         });
@@ -259,6 +249,7 @@ module.exports = async function handler(req, res) {
       
       console.log(`[NEW] ${donationId} - ${donation.nama} - Rp${donation.jumlah.toLocaleString('id-ID')}`);
       
+      // ✅ RETURN DEBUG INFO IN RESPONSE
       return res.status(200).json({
         success: true,
         message: 'Donation received',
@@ -268,6 +259,12 @@ module.exports = async function handler(req, res) {
           jumlah: donation.jumlah,
           pesan: donation.pesan,
           timestamp: Date.now()
+        },
+        debug: {
+          receivedFields: fieldAnalysis,
+          parsedResult: donation,
+          allWebhookKeys: Object.keys(webhookData),
+          webhookDataSample: webhookData
         }
       });
       
